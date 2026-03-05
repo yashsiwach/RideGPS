@@ -75,16 +75,16 @@
         if (role === "Rider") {
             startLiveTracking(name, role);
             // Check for incoming requests every 3 seconds
-            requestCheckInterval = setInterval(() => checkPendingRequests(name), 3000);
+            requestCheckInterval = setInterval(() => checkPendingRequests(name), 10000);
             // Show customer markers on the map
             findCustomers();
-            intervalId = setInterval(findCustomers, 5000);
+            intervalId = setInterval(findCustomers, 10000);
         } else {
             startLiveTracking(name, role);
             findRiders();
-            intervalId = setInterval(findRiders, 5000);
+            intervalId = setInterval(findRiders, 10000);
             // Check request status every 3 seconds
-            requestCheckInterval = setInterval(() => checkRequestStatus(name), 3000);
+            requestCheckInterval = setInterval(() => checkRequestStatus(name), 10000);
         }
     }
 
