@@ -76,6 +76,9 @@
             startLiveTracking(name, role);
             // Check for incoming requests every 3 seconds
             requestCheckInterval = setInterval(() => checkPendingRequests(name), 3000);
+            // Show customer markers on the map
+            findCustomers();
+            intervalId = setInterval(findCustomers, 5000);
         } else {
             startLiveTracking(name, role);
             findRiders();
@@ -245,8 +248,42 @@
             });
     }
 
+    function findCustomers() {
+        fetch('/Home/GetCustomers')
+            .then(res => {
+                if (!res.ok) {
+                    throw new Error('Failed to fetch customers');
+                }
+                return res.json();
+            })
+            .then(data => {
+                markersLayer.clearLayers();
+                if (data.length === 0) {
+                    setStatus("No customers nearby");
+                } else {
+                    setStatus(`Found ${data.length} customer(s) nearby`);
+                }
+
+                data.forEach(customer => {
+                    var marker = L.marker([customer.latitude, customer.longitude], {
+                        icon: L.icon({
+                            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
+                            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+                            iconSize: [25, 41],
+                            iconAnchor: [12, 41]
+                        })
+                    }).addTo(markersLayer);
+
+                    marker.bindPopup(`<b>Customer: ${customer.name}</b>`);
+                });
+            })
+            .catch(error => {
+                console.error('Error fetching customers:', error);
+                setStatus('Error: ' + error.message);
+            });
+    }
+
     function sendRideRequest(riderName) {
-        if (!currentUser.name) {
             alert("Please start the app first");
             return;
         }

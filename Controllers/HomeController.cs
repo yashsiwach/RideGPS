@@ -39,6 +39,13 @@ namespace NearbyFriendsApp.Controllers
             return Json(data);
         }
 
+        [HttpGet]
+        public IActionResult GetCustomers()
+        {
+            var data = service.GetCustomers();
+            return Json(data);
+        }
+
         [HttpPost]
         public IActionResult SendRideRequest([FromBody] RideRequestDto dto)
         {

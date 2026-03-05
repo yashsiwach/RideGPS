@@ -48,6 +48,11 @@ namespace NearbyFriendsApp.Services
             return _locations.Find(x => x.Role == "Rider").ToList();
         }
 
+        public List<UserLocation> GetCustomers()
+        {
+            return _locations.Find(x => x.Role == "Customer").ToList();
+        }
+
         public UserLocation? GetUserByName(string name, string role)
         {
             return _locations.Find(x => x.Name == name && x.Role == role).FirstOrDefault();
