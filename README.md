@@ -1,1 +1,1 @@
-# RideGPS
+# FrndsGPS

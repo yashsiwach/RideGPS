@@ -1,0 +1,48 @@
+﻿# Build folders
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Rider
+.idea/
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Publish folder
+publish/
+out/
+
+# NuGet
+packages/
+*.nupkg
+
+# Environment files
+appsettings.Development.json
+appsettings.Local.json
+
+# User Secrets
+secrets.json
+
+# Docker
+docker-compose.override.yml
+
+# Node modules (if added later)
+node_modules/
+
+# Temporary
+*.tmp
+*.temp

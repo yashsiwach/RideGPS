@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: hailing-services
+    runtime: docker
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: MongoDbSettings__ConnectionString
+        sync: false
+      - key: MongoDbSettings__DatabaseName
+        value: NearbyDb
+      - key: MongoDbSettings__CollectionName
+        value: Locations

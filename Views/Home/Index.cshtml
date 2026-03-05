@@ -1,0 +1,430 @@
+﻿@{
+    ViewData["Title"] = "Ride Booking";
+}
+
+<h2>Ride Booking System</h2>
+
+<div style="margin-bottom: 20px;">
+    <input type="text" id="name" placeholder="Enter your name" />
+    <select id="userRole">
+        <option value="Customer">I am a Customer</option>
+        <option value="Rider">I am a Rider</option>
+    </select>
+    <button id="startBtn" onclick="startApp()">Start</button>
+    <button id="stopBtn" onclick="stopApp()" style="display:none;">Stop</button>
+</div>
+
+<div id="status" style="margin-bottom: 10px; color: #666; font-weight: bold;"></div>
+
+<!-- Notifications Panel -->
+<div id="notificationPanel" style="display:none; background:#fff3cd; padding:15px; margin-bottom:10px; border-radius:5px; border:1px solid #ffc107;">
+    <h4>Incoming Ride Requests</h4>
+    <div id="requestsList"></div>
+</div>
+
+<!-- Current Ride Panel -->
+<div id="ridePanel" style="display:none; background:#d1ecf1; padding:15px; margin-bottom:10px; border-radius:5px; border:1px solid #17a2b8;">
+    <h4 id="ridePanelTitle">Current Ride</h4>
+    <div id="rideDetails"></div>
+    <button id="completeRideBtn" onclick="completeRide()" style="display:none; margin-top:10px;" class="btn btn-success">Complete Ride</button>
+</div>
+
+<div id="map" style="height:500px; border:2px solid #ccc; border-radius:5px;"></div>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+    var map = L.map('map').setView([20, 77], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    var markersLayer = L.layerGroup().addTo(map);
+    var customerMarker = null;
+    var riderMarker = null;
+    var watchId = null;
+    var intervalId = null;
+    var requestCheckInterval = null;
+    var isRunning = false;
+    var currentUser = { name: "", role: "" };
+    var currentRequestId = null;
+
+    function setStatus(message) {
+        document.getElementById('status').textContent = message;
+    }
+
+    function startApp() {
+        if (isRunning) {
+            alert("Already running!");
+            return;
+        }
+
+        var role = document.getElementById("userRole").value;
+        var name = document.getElementById("name").value;
+
+        if (!name) { 
+            alert("Enter name"); 
+            return; 
+        }
+
+        currentUser = { name: name, role: role };
+        isRunning = true;
+        document.getElementById("startBtn").style.display = "none";
+        document.getElementById("stopBtn").style.display = "inline-block";
+
+        if (role === "Rider") {
+            startLiveTracking(name, role);
+            // Check for incoming requests every 3 seconds
+            requestCheckInterval = setInterval(() => checkPendingRequests(name), 3000);
+        } else {
+            startLiveTracking(name, role);
+            findRiders();
+            intervalId = setInterval(findRiders, 5000);
+            // Check request status every 3 seconds
+            requestCheckInterval = setInterval(() => checkRequestStatus(name), 3000);
+        }
+    }
+
+    function stopApp() {
+        isRunning = false;
+        document.getElementById("startBtn").style.display = "inline-block";
+        document.getElementById("stopBtn").style.display = "none";
+
+        if (watchId !== null) {
+            navigator.geolocation.clearWatch(watchId);
+            watchId = null;
+        }
+
+        if (intervalId !== null) {
+            clearInterval(intervalId);
+            intervalId = null;
+        }
+
+        if (requestCheckInterval !== null) {
+            clearInterval(requestCheckInterval);
+            requestCheckInterval = null;
+        }
+
+        document.getElementById('notificationPanel').style.display = 'none';
+        document.getElementById('ridePanel').style.display = 'none';
+        setStatus("Stopped");
+    }
+
+    function startLiveTracking(name, role) {
+        if (!navigator.geolocation) {
+            alert("Geolocation is not supported by your browser");
+            stopApp();
+            return;
+        }
+
+        setStatus("Requesting location permission...");
+
+        watchId = navigator.geolocation.watchPosition(
+            function (position) {
+                setStatus("Tracking location...");
+                var data = {
+                    name: name,
+                    role: role,
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude
+                };
+
+                fetch('/Home/SaveLocation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to save location');
+                    }
+                    return response.json();
+                })
+                .catch(error => {
+                    console.error('Error saving location:', error);
+                    setStatus('Error saving location: ' + error.message);
+                });
+
+                // Update own marker
+                if (role === "Customer") {
+                    if (customerMarker) {
+                        customerMarker.setLatLng([data.latitude, data.longitude]);
+                    } else {
+                        customerMarker = L.marker([data.latitude, data.longitude], {
+                            icon: L.icon({
+                                iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
+                                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+                                iconSize: [25, 41],
+                                iconAnchor: [12, 41]
+                            })
+                        }).addTo(map).bindPopup("You (Customer)");
+                    }
+                    map.setView([data.latitude, data.longitude], 15);
+                } else {
+                    if (riderMarker) {
+                        riderMarker.setLatLng([data.latitude, data.longitude]);
+                    } else {
+                        riderMarker = L.marker([data.latitude, data.longitude], {
+                            icon: L.icon({
+                                iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
+                                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+                                iconSize: [25, 41],
+                                iconAnchor: [12, 41]
+                            })
+                        }).addTo(map).bindPopup("You (Rider)");
+                    }
+                    map.setView([data.latitude, data.longitude], 15);
+                }
+            },
+            function (error) {
+                var errorMsg = "";
+                switch(error.code) {
+                    case error.PERMISSION_DENIED:
+                        errorMsg = "Location permission denied. Please allow location access.";
+                        break;
+                    case error.POSITION_UNAVAILABLE:
+                        errorMsg = "Location information unavailable.";
+                        break;
+                    case error.TIMEOUT:
+                        errorMsg = "Location request timed out.";
+                        break;
+                    default:
+                        errorMsg = "An unknown error occurred.";
+                        break;
+                }
+                alert(errorMsg);
+                setStatus(errorMsg);
+                stopApp();
+            },
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0
+            }
+        );
+    }
+
+    function findRiders() {
+        fetch('/Home/GetRiders')
+            .then(res => {
+                if (!res.ok) {
+                    throw new Error('Failed to fetch riders');
+                }
+                return res.json();
+            })
+            .then(data => {
+                markersLayer.clearLayers();
+                if (data.length === 0) {
+                    setStatus("No riders available");
+                } else {
+                    setStatus(`Found ${data.length} rider(s) - Click on a marker to request`);
+                }
+                
+                data.forEach(rider => {
+                    var marker = L.marker([rider.latitude, rider.longitude], {
+                        icon: L.icon({
+                            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
+                            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+                            iconSize: [25, 41],
+                            iconAnchor: [12, 41]
+                        })
+                    }).addTo(markersLayer);
+                    
+                    var popupContent = `
+                        <b>Rider: ${rider.name}</b><br>
+                        <button onclick="sendRideRequest('${rider.name}')" class="btn btn-sm btn-primary" style="margin-top:5px;">
+                            Request Ride
+                        </button>
+                    `;
+                    marker.bindPopup(popupContent);
+                });
+            })
+            .catch(error => {
+                console.error('Error fetching riders:', error);
+                setStatus('Error: ' + error.message);
+            });
+    }
+
+    function sendRideRequest(riderName) {
+        if (!currentUser.name) {
+            alert("Please start the app first");
+            return;
+        }
+
+        setStatus("Sending ride request...");
+
+        fetch('/Home/SendRideRequest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                customerName: currentUser.name,
+                riderName: riderName
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                currentRequestId = data.requestId;
+                setStatus(`Request sent to ${riderName}! Distance: ${data.distance} km. Waiting for response...`);
+                alert(`Ride request sent to ${riderName}! Distance: ${data.distance} km`);
+            } else {
+                alert('Error: ' + (data.error || 'Failed to send request'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Failed to send request');
+        });
+    }
+
+    function checkPendingRequests(riderName) {
+        fetch(`/Home/GetPendingRequests?riderName=${encodeURIComponent(riderName)}`)
+            .then(res => res.json())
+            .then(requests => {
+                if (requests.length > 0) {
+                    document.getElementById('notificationPanel').style.display = 'block';
+                    var html = '';
+                    requests.forEach(req => {
+                        html += `
+                            <div style="background:white; padding:10px; margin-bottom:10px; border-radius:5px; border:1px solid #ddd;">
+                                <strong>${req.customerName}</strong> wants a ride<br>
+                                <small>Distance: ${req.distanceInKm.toFixed(2)} km</small><br>
+                                <button onclick="respondToRequest('${req.id}', 'Accepted')" class="btn btn-sm btn-success" style="margin-top:5px; margin-right:5px;">Accept</button>
+                                <button onclick="respondToRequest('${req.id}', 'Rejected')" class="btn btn-sm btn-danger" style="margin-top:5px;">Reject</button>
+                            </div>
+                        `;
+                    });
+                    document.getElementById('requestsList').innerHTML = html;
+                } else {
+                    document.getElementById('notificationPanel').style.display = 'none';
+                }
+            })
+            .catch(error => {
+                console.error('Error checking requests:', error);
+            });
+    }
+
+    function checkRequestStatus(customerName) {
+        fetch(`/Home/GetCustomerRequestStatus?customerName=${encodeURIComponent(customerName)}`)
+            .then(res => res.json())
+            .then(request => {
+                if (request) {
+                    if (request.status === 'Accepted') {
+                        currentRequestId = request.id;
+                        document.getElementById('ridePanel').style.display = 'block';
+                        document.getElementById('ridePanelTitle').textContent = 'Ride Accepted!';
+                        document.getElementById('rideDetails').innerHTML = `
+                            <strong>Rider:</strong> ${request.riderName}<br>
+                            <strong>Distance:</strong> ${request.distanceInKm.toFixed(2)} km<br>
+                            <strong>Status:</strong> <span style="color:green;">On the way!</span>
+                        `;
+                        setStatus(`🎉 ${request.riderName} accepted your request!`);
+                    } else if (request.status === 'Rejected') {
+                        document.getElementById('ridePanel').style.display = 'block';
+                        document.getElementById('ridePanelTitle').textContent = 'Request Rejected';
+                        document.getElementById('rideDetails').innerHTML = `
+                            <strong>Rider:</strong> ${request.riderName}<br>
+                            <span style="color:red;">Request was rejected. Try another rider.</span>
+                        `;
+                        setStatus(`Request rejected by ${request.riderName}. Try another rider.`);
+                        setTimeout(() => {
+                            document.getElementById('ridePanel').style.display = 'none';
+                            currentRequestId = null;
+                        }, 5000);
+                    } else if (request.status === 'Pending') {
+                        setStatus(`⏳ Waiting for ${request.riderName} to respond...`);
+                    }
+                } else {
+                    document.getElementById('ridePanel').style.display = 'none';
+                }
+            })
+            .catch(error => {
+                console.error('Error checking status:', error);
+            });
+    }
+
+    function respondToRequest(requestId, status) {
+        fetch('/Home/RespondToRequest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                requestId: requestId,
+                status: status
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                if (status === 'Accepted') {
+                    currentRequestId = requestId;
+                    document.getElementById('notificationPanel').style.display = 'none';
+                    document.getElementById('ridePanel').style.display = 'block';
+                    document.getElementById('ridePanelTitle').textContent = 'Active Ride';
+                    document.getElementById('completeRideBtn').style.display = 'block';
+                    setStatus('✅ Ride accepted! Navigate to customer.');
+                } else {
+                    setStatus('Request rejected');
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Failed to respond to request');
+        });
+    }
+
+    function completeRide() {
+        if (!currentRequestId) return;
+
+        if (confirm('Complete this ride?')) {
+            fetch('/Home/CompleteRide', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ requestId: currentRequestId })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('ridePanel').style.display = 'none';
+                    document.getElementById('completeRideBtn').style.display = 'none';
+                    currentRequestId = null;
+                    setStatus('✅ Ride completed!');
+                    alert('Ride completed successfully!');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Failed to complete ride');
+            });
+        }
+    }
+</script>
+
+<style>
+    .btn {
+        padding: 5px 10px;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 12px;
+    }
+    .btn-primary {
+        background-color: #007bff;
+        color: white;
+    }
+    .btn-success {
+        background-color: #28a745;
+        color: white;
+    }
+    .btn-danger {
+        background-color: #dc3545;
+        color: white;
+    }
+    .btn:hover {
+        opacity: 0.8;
+    }
+    .btn-sm {
+        padding: 3px 8px;
+        font-size: 11px;
+    }
+</style>
